@@ -207,6 +207,85 @@ def label_bahaya(p: float) -> str:
 # main cli
 # -----------------------------
 
+
+def generate_flood_grid(area: Area, rows: int, cols: int, seed: int | None = None) -> List[List[float]]:
+    """
+    generate grid 2D dari area, buat visualisasi peta banjir, tiap cell dapet nilai
+    0..5 depth 
+    """
+    if seed is not None:
+        random.seed(seed)
+
+    grid: List[List[float]] = [[0.0 for _ in range(cols)] for _ in range(rows)]
+
+    # biar di tengah suka banjir
+    center_r, center_c = rows // 2, cols // 2
+
+    for r in range(rows):
+        for c in range(cols):
+            a = Area(
+                name=f"{area.name}_{r}_{c}",
+                pembuangan_air=clamp(area.pembuangan_air + random.uniform(-0.12, 0.12), 0.0, 1.0),
+                tipe_alas=clamp(area.tipe_alas + random.uniform(-0.15, 0.15), 0.0, 1.0),
+                slope=clamp(area.slope + random.uniform(-0.18, 0.18), 0.0, 1.0),
+                sungai_dekat=clamp(area.sungai_dekat + (1.0 - (abs(r - center_r) + abs(c - center_c)) / float(rows + cols)) * 0.5 + random.uniform(-0.15, 0.15), 0.0, 1.0),
+                elevation_m=area.elevation_m + (r - center_r) * 0.6 + (c - center_c) * 0.4 + random.uniform(-8.0, 8.0),
+            )
+
+            s = simulasi(a, None)
+            raw = (
+                1.8 * s.level_sungai
+                + 0.9 * s.soil_sat
+                + 0.6 * s.pasang_surut
+                + (1.2 if s.banjir else 0.0)
+                + 0.8 * a.sungai_dekat
+                - 0.9 * a.pembuangan_air
+            )
+            # faktor elevasi
+            elev_factor = clamp(1.0 - (a.elevation_m / 200.0), 0.0, 1.0)
+            depth = max(0.0, raw * elev_factor * 1.2)
+
+            depth = math.pow(depth, 0.85) if depth > 0 else 0.0
+
+            grid[r][c] = depth
+    # smoothing
+    smoothed = [[0.0 for _ in range(cols)] for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            ssum = 0.0
+            cnt = 0
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    rr = r + dr
+                    cc = c + dc
+                    if 0 <= rr < rows and 0 <= cc < cols:
+                        ssum += grid[rr][cc]
+                        cnt += 1
+            smoothed[r][c] = ssum / max(1, cnt)
+
+    all_vals = sorted(v for row in smoothed for v in row)
+    if not all_vals:
+        return smoothed
+    p95 = all_vals[int(len(all_vals) * 0.95)]
+    if p95 <= 1e-6:
+        p95 = max(all_vals[-1], 1.0)
+    out = [[0.0 for _ in range(cols)] for _ in range(rows)]
+    for r in range(rows):
+        for c in range(cols):
+            v = smoothed[r][c] / p95 * 4.0
+            out[r][c] = max(0.0, min(5.0, v))
+
+    def buat_flood_grid(area2: Area, rows2: int, cols2: int, seed2: int | None = None) -> List[List[float]]:
+        return buat_flood_grid(area2, rows2, cols2, seed2)
+
+    return out
+
+# back-compat alias
+def buat_flood_grid(area: Area, rows: int, cols: int, seed: int | None = None) -> List[List[float]]:
+    return buat_flood_grid(area, rows, cols, seed)
+
+    return grid
+
 def main() -> None:
     random.seed(7)
 

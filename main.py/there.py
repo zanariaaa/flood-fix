@@ -1,6 +1,9 @@
 import tkinter as tk
+import tkinter.simpledialog as simpledialog
 import heapq
 import random
+import importlib.util
+import os
 from math import inf
 
 # ---------- Pathfinding (A*) ----------
@@ -116,11 +119,11 @@ class AStarGUI:
 
         tk.Button(top, text="Random Walls", command=self.random_walls).pack(side="left", padx=4, pady=4)
         tk.Button(top, text="Random Flood Blobs", command=self.random_flood).pack(side="left", padx=4, pady=4)
+        tk.Button(top, text="Sim Flood (hello.py)", command=self.sim_flood).pack(side="left", padx=4, pady=4)
         tk.Button(top, text="Clear Flood", command=self.clear_flood).pack(side="left", padx=4, pady=4)
 
         tk.Button(top, text="Reset All", command=self.reset_all).pack(side="left", padx=4, pady=4)
 
-        # Sliders (simple, fun)
         self.wall_density = tk.DoubleVar(value=0.25)
         self.blob_count = tk.IntVar(value=10)
         self.blob_radius = tk.IntVar(value=7)
@@ -150,12 +153,20 @@ class AStarGUI:
         self.rects = [[None for _ in range(cols)] for _ in range(rows)]
         self.draw_grid()
 
-        # Bind clicks
+        self.hello_mod = None
+        try:
+            hello_path = os.path.join(os.path.dirname(__file__), "hello.py")
+            spec = importlib.util.spec_from_file_location("hello_mod", hello_path)
+            hello_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(hello_mod)
+            self.hello_mod = hello_mod
+        except Exception:
+            self.hello_mod = None
+
         self.canvas.bind("<Button-1>", self.on_left_click)
         self.canvas.bind("<Shift-Button-1>", self.on_shift_left_click)
         self.canvas.bind("<Control-Button-1>", self.on_ctrl_left_click)
 
-        # Set border walls initially
         self.apply_border_walls()
         self.redraw_all()
 
@@ -199,7 +210,6 @@ class AStarGUI:
             self.grid[0][c] = 1
             self.grid[self.rows - 1][c] = 1
 
-        # Ensure start/goal aren't walled
         sr, sc = self.start
         gr, gc = self.goal
         self.grid[sr][sc] = 0
@@ -229,7 +239,6 @@ class AStarGUI:
         self.status.set("Reset done (border walls on).")
 
     def toggle_wall(self, r, c):
-        # prevent editing border walls (keeps your “no edge hugging” promise)
         if r == 0 or c == 0 or r == self.rows - 1 or c == self.cols - 1:
             return
         if (r, c) == self.start or (r, c) == self.goal:
@@ -278,13 +287,11 @@ class AStarGUI:
     def random_walls(self):
         d = float(self.wall_density.get())
 
-        # Keep border walls. Randomize interior.
         for r in range(1, self.rows - 1):
             for c in range(1, self.cols - 1):
                 if (r, c) == self.start or (r, c) == self.goal:
                     self.grid[r][c] = 0
                     continue
-                # Do not place walls on top of "very deep flood" only; walls independent
                 self.grid[r][c] = 1 if random.random() < d else 0
 
         self.apply_border_walls()
@@ -293,7 +300,6 @@ class AStarGUI:
         self.status.set(f"Random walls generated (density={d:.2f}).")
 
     def random_flood(self):
-        # Add some blobs onto existing flood
         n = int(self.blob_count.get())
         rad = int(self.blob_radius.get())
         strength = float(self.blob_strength.get())
@@ -303,25 +309,57 @@ class AStarGUI:
         self.redraw_all()
         self.status.set(f"Added flood blobs (count={n}, radius≈{rad}).")
 
+    def sim_flood(self):
+        """flood map yang apke hello.py"""
+        if self.hello_mod is None:
+            self.status.set("hello.py not found or failed to import.")
+            return
+
+        try:
+            pa = simpledialog.askfloat("pembuangan_air", "pembuangan_air (0..1)", initialvalue=0.35, minvalue=0.0, maxvalue=1.0, parent=self.root)
+            tipe = simpledialog.askfloat("tipe_alas", "tipe_alas (0..1)", initialvalue=0.7, minvalue=0.0, maxvalue=1.0, parent=self.root)
+            slope = simpledialog.askfloat("slope", "slope (0..1)", initialvalue=0.2, minvalue=0.0, maxvalue=1.0, parent=self.root)
+            sungai = simpledialog.askfloat("sungai_dekat", "sungai_dekat (0..1)", initialvalue=0.85, minvalue=0.0, maxvalue=1.0, parent=self.root)
+            elev = simpledialog.askfloat("elevation_m", "elevation_m (meters)", initialvalue=25.0, parent=self.root)
+        except Exception:
+            self.status.set("TIDAK BOLEH.")
+            return
+
+        pa = 0.35 if pa is None else pa
+        tipe = 0.7 if tipe is None else tipe
+        slope = 0.2 if slope is None else slope
+        sungai = 0.85 if sungai is None else sungai
+        elev = 25.0 if elev is None else elev
+
+        Area = getattr(self.hello_mod, "Area")
+        area = Area(name="from_gui", pembuangan_air=pa, tipe_alas=tipe, slope=slope, sungai_dekat=sungai, elevation_m=elev)
+
+        gen = getattr(self.hello_mod, "buat_flood_grid", None)
+        if gen is None:
+            self.status.set("hello.py tak punya buat_flood_grid")
+            return
+
+        self.flood = gen(area, self.rows, self.cols, seed=random.randint(0, 10**6))
+        self.path_cells.clear()
+        self.redraw_all()
+        self.status.set("flood map di buat dari hello.py")
+
     def flood_cost_fn(self, r, c):
         d = float(self.flood[r][c])
         unsafe = float(self.unsafe_depth.get())
         scale = float(self.penalty_scale.get())
 
-        # Treat very deep flood as basically blocked
+        # yang ada flood itu dianggap tak boleh lewat
         if d >= unsafe:
             return 1e9
         return d * scale
-
+    
     def redraw_all(self):
-        # Base cells: walls vs free
         for r in range(self.rows):
             for c in range(self.cols):
                 if self.grid[r][c] == 1:
                     self.set_cell_color(r, c, "black")
                 else:
-                    # Flood shading: more flood => darker blue-ish
-                    # We keep it simple with a few bands.
                     d = self.flood[r][c]
                     if d <= 0.01:
                         self.set_cell_color(r, c, "white")
@@ -332,16 +370,12 @@ class AStarGUI:
                     elif d < float(self.unsafe_depth.get()):
                         self.set_cell_color(r, c, "turquoise")
                     else:
-                        # Unsafe depth still drawn as flood color, but A* treats it as blocked cost
                         self.set_cell_color(r, c, "deepskyblue")
 
-        # Path overlay
         for (r, c) in self.path_cells:
             if (r, c) != self.start and (r, c) != self.goal:
                 self.set_cell_color(r, c, "gold")
-
-        # Start/Goal overlay
-        sr, sc = self.start
+                sr, sc = self.start
         gr, gc = self.goal
         self.set_cell_color(sr, sc, "limegreen")
         self.set_cell_color(gr, gc, "tomato")
@@ -352,12 +386,12 @@ class AStarGUI:
         sr, sc = self.start
         gr, gc = self.goal
         if self.grid[sr][sc] == 1 or self.grid[gr][gc] == 1:
-            self.status.set("Start/Goal is blocked. Unblock it first.")
+            self.status.set("Start/Goal di block, coba bikin lagi.")
             return
 
         path = astar(self.grid, self.start, self.goal, cost_fn=self.flood_cost_fn)
         if path is None:
-            self.status.set("No path found 😭 (walls/flood too cursed?)")
+            self.status.set("tidak ada jalan. (walls/flood too cursed?)")
         else:
             self.path_cells = set(path)
             self.status.set(
