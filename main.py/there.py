@@ -43,7 +43,6 @@ def astar(grid, start, goal, cost_fn=None):
             path.reverse()
             return path
 
-        # Skip stale queue entries
         if g > g_score.get((r, c), inf):
             continue
 
@@ -61,8 +60,6 @@ def astar(grid, start, goal, cost_fn=None):
 
     return None
 
-
-# ---------- Random "flood blobs" generator ----------
 def add_flood_blobs(depth, n_blobs, blob_radius, blob_strength, seed=None):
     """
     depth: 2D float matrix; mutated in place
@@ -85,7 +82,6 @@ def add_flood_blobs(depth, n_blobs, blob_radius, blob_strength, seed=None):
             for c in range(cc - rad, cc + rad + 1):
                 if c < 1 or c >= cols - 1:
                     continue
-                # Cheap circular-ish falloff
                 dist = abs(r - cr) + abs(c - cc)
                 if dist > rad:
                     continue
@@ -110,7 +106,6 @@ class AStarGUI:
 
         self.path_cells = set()
 
-        # Controls
         top = tk.Frame(self.root)
         top.pack(fill="x")
 
@@ -375,9 +370,8 @@ class AStarGUI:
         for (r, c) in self.path_cells:
             if (r, c) != self.start and (r, c) != self.goal:
                 self.set_cell_color(r, c, "gold")
-                sr, sc = self.start
         gr, gc = self.goal
-        self.set_cell_color(sr, sc, "limegreen")
+        self.set_cell_color(gr, gc, "limegreen")
         self.set_cell_color(gr, gc, "tomato")
 
     def run_astar(self):
@@ -403,7 +397,6 @@ class AStarGUI:
 
     def run(self):
         self.root.mainloop()
-
 
 if __name__ == "__main__":
     app = AStarGUI(rows=30, cols=45, cell_size=18)
